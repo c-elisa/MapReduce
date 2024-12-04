@@ -1,0 +1,6 @@
+{
+    "n_workers" : 4,
+    "ports" : ["3000", "3001", "3002", "3003"],
+    "out_files": ["file1", "file2", "file3", "file4"]
+}
+
