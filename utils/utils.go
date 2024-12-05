@@ -5,6 +5,8 @@ import(
 	"log"
 	"encoding/json"
 	"slices"
+	"math/rand"
+	"time"
 )
 
 type Config struct{
@@ -17,8 +19,11 @@ type Input struct{
 	Nums []int `json:"nums"`
 }
 
+type SampledInput struct{
+	SampledNums []int `json:"sampledNums"`
+}
+
 var Workers int
-var MaxValue int
 
 func ReadConfig() Config {
 	
@@ -54,8 +59,6 @@ func ReadInput() Input {
 	var input Input
 
 	json.Unmarshal(byteContent, &input)
-
-	MaxValue = slices.Max(input.Nums)
 
 	return input
 }
@@ -100,4 +103,45 @@ func SplitInput(nums []int, n_workers int) [][]int{
 
 	return numsSplit
 
+}
+
+func SampleInput(nums []int) {
+
+	var sampledInput SampledInput
+	
+	// doing RANDOM SAMPLING on data
+	rand.Seed(time.Now().Unix())
+
+	isSet := make(map[int]bool)
+	for len(sampledInput.SampledNums) < Workers-1 {
+		value := rand.Intn(len(nums))
+		if !isSet[value] {
+			isSet[value] = true
+			sampledInput.SampledNums = append(sampledInput.SampledNums, nums[value])
+		}
+	}
+
+	slices.Sort(sampledInput.SampledNums)
+	
+	// writing SampledInput sequence to file
+	_, err := os.OpenFile("utils/sampled.json", os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0644)
+	CheckError(err)
+
+	sampled, _ := json.Marshal(sampledInput)
+    err = os.WriteFile("utils/sampled.json", sampled, 0644)
+}
+
+func GetSampledInput() SampledInput{
+	var sampledInput SampledInput
+
+	file, err := os.Open("utils/sampled.json")
+	defer file.Close()
+
+	CheckError(err)
+
+	byteContent, _ := os.ReadFile("utils/sampled.json")
+
+	json.Unmarshal(byteContent, &sampledInput)
+
+	return sampledInput
 }

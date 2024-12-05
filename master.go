@@ -19,6 +19,10 @@ func main() {
 	split := utils.SplitInput(input.Nums, config.N_workers)
 	fmt.Println(split)
 
+	//sample input data to optimize partitioning between reduce workers
+	utils.SampleInput(input.Nums)
+
+
 	// CONNECT TO WORKERS //
 
 	addr := []string{}

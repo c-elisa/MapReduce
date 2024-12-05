@@ -131,16 +131,24 @@ func (t *MapHandler) Shuffle(request ShuffleRequest, reply *ShuffleReply) error{
 	//index of the Reduce worker that sent the request
 	index := request.Index
 	n_workers := utils.Workers
-	max := 125
 
-	fmt.Println(index, n_workers, max)
+	sampledInput := utils.GetSampledInput()
 
 	var reduceSplit []int
 
 	for _, e := range MapResult {
-		wIndex := (e*n_workers)/(max+1)
-		if wIndex == index {
-			reduceSplit=append(reduceSplit, e)
+		if index == 0 {
+			if e<sampledInput.SampledNums[index]{
+				reduceSplit=append(reduceSplit, e)
+			}
+		}else if index == n_workers-1 {
+			if e>sampledInput.SampledNums[index-1]{
+				reduceSplit=append(reduceSplit, e)
+			}
+		}else{
+			if e<sampledInput.SampledNums[index] && e>sampledInput.SampledNums[index-1]{
+				reduceSplit=append(reduceSplit, e)
+			}
 		}
 	}
 
