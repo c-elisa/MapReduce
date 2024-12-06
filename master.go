@@ -3,21 +3,50 @@ package main
 import (
 	"fmt"
 	"mapreduce/utils"
-	"log"
 	"net/rpc"
 	"mapreduce/method"
 	"sync"
+	"io"
+	"os"
+	"net"
+	"log"
 )
+
+var config utils.Config
+
+func mergeFiles(){
+
+	var file *os.File
+	out, err := os.OpenFile("merged.txt", os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0644)
+	utils.CheckError(err)
+	defer out.Close()
+
+	for _,filename := range config.Out_files {
+		file, err = os.Open(filename)
+		utils.CheckError(err)
+
+		_, err = io.Copy(out, file)
+		utils.CheckError(err)
+		file.Close()
+	}
+}
 
 func main() {
 
+	var err error
+	
 	//read from config file
-	config := utils.ReadConfig()
+	config = utils.ReadConfig()
+
+	// master becomes a Server to receive Merge requests from workers
+
+	//ISTANZIA IL SERVER
+
+	port := config.Master
 
 	//read from input file
 	input := utils.ReadInput()
 	split := utils.SplitInput(input.Nums, config.N_workers)
-	fmt.Println(split)
 
 	//sample input data to optimize partitioning between reduce workers
 	utils.SampleInput(input.Nums)
@@ -27,7 +56,6 @@ func main() {
 
 	addr := []string{}
 	clients := make([]*rpc.Client, config.N_workers, config.N_workers)
-	var err error
 
 	// compute the addresses from config file
 	for i:=0; i<config.N_workers; i++ {
@@ -69,24 +97,26 @@ func main() {
 		fmt.Println("[MASTER] Received from MAP worker" , i, reply[i].Sorted)
 	}
 
-	// distribute reduce tasks
+	mapHandler := new(method.MapHandler)
+	server := rpc.NewServer()
+	err = server.RegisterName("Map", mapHandler)
+	utils.CheckError(err)
 
-	replyReduce := make([]*method.ReduceReply, config.N_workers, config.N_workers)
-	asyncCall := make([]*rpc.Call, config.N_workers, config.N_workers)
+	address := "localhost:" + port
+	lis, err := net.Listen("tcp", address)
+	utils.CheckError(err)
+	log.Printf("RPC server listens on port %s", port)
 
-	for i:=0; i<config.N_workers; i++ {
-		args := method.ReduceRequest{i}
-		asyncCall[i] = clients[i].Go("Map.Reduce", args, &replyReduce[i], nil)
-	}
-
-	for i,call := range asyncCall {
-		<-call.Done
-		if call.Error != nil {
-			log.Fatal("Error in Map.Reduce: ", call.Error.Error())
+	go func(){
+		for{
+			server.Accept(lis)
 		}
-		fmt.Println("[MASTER] Reduce result #" , i, replyReduce[i].AllSorted)
-	}
+	}()
 
-	fmt.Println("All reduce tasks completed")
+	for method.MergeRequestCounter!=config.N_workers{}
+	mergeFiles()
+
+	fmt.Println("Files merged...MapReduce DONE!")
+	method.MergeRequestCounter=0
 
 }

@@ -13,6 +13,7 @@ type Config struct{
 	N_workers int `json:"n_workers"`
 	Ports []string `json:"ports"`
 	Out_files []string `json:"out_files"`
+	Master string `json:"master"`
 }
 
 type Input struct{
