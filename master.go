@@ -52,14 +52,9 @@ func main() {
 
 	n_map_workers := len(config.Map_nodes)
 
-	addr := []string{}
 	clients := make([]*rpc.Client, n_map_workers, n_map_workers)
 
-	for _,n := range config.Map_nodes {
-		addr = append(addr, "localhost:" + config.Ports[n-1])
-	}
-
-	for i,a := range addr {
+	for i,a := range config.Workers {
 		clients[i], err = rpc.Dial("tcp", a)
 		utils.CheckError(err)
 		fmt.Println("[MASTER] RPC server @", a, "dialed")
@@ -74,7 +69,7 @@ func main() {
 		
 		args := method.MapRequest{split[i]}
 
-		fmt.Println("[MASTER] Call to RPC server @", addr[i])
+		fmt.Println("[MASTER] Call to RPC server @", config.Workers[i])
 
 		wg.Add(1)
 
@@ -96,17 +91,16 @@ func main() {
 
 	//ISTANZIA IL SERVER
 
-	port := config.Master
+	addr := config.Master
 
 	mapHandler := new(method.MapReduceHandler)
 	server := rpc.NewServer()
 	err = server.RegisterName("Map", mapHandler)
 	utils.CheckError(err)
 
-	address := "localhost:" + port
-	lis, err := net.Listen("tcp", address)
+	lis, err := net.Listen("tcp", addr)
 	utils.CheckError(err)
-	log.Printf("RPC server listens on port %s", port)
+	log.Printf("RPC server listens @%s", addr)
 
 	go func(){
 		for{

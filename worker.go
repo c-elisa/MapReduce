@@ -53,10 +53,9 @@ func main() {
 	//read from config file and get the port associated with this worker
 
 	config := utils.ReadConfig()
-	if(me>=len(config.Ports)){
+	if(me>=len(config.Workers)){
 		log.Fatal("Worker index not valid")
 	}
-	port := config.Ports[me]
 
 	mapMode := slices.Contains(config.Map_nodes, me+1)
 	reduceMode := slices.Contains(config.Reduce_nodes, me+1)
@@ -69,10 +68,10 @@ func main() {
 	err = server.RegisterName("Map", mapHandler)
 	utils.CheckError(err)
 
-	address := "localhost:" + port
+	address := config.Workers[me]
 	lis, err := net.Listen("tcp", address)
 	utils.CheckError(err)
-	log.Printf("RPC server listens on port %s", port)
+	log.Printf("RPC server listens @%s", address)
 
 	go func(){
 		for{
@@ -90,16 +89,10 @@ func main() {
 		
 			// CONNECT TO WORKERS //
 		
-			addr := []string{}
 			clients := make([]*rpc.Client, n_reduce_workers, n_reduce_workers)
 			replies := make([]method.ReduceReply, n_reduce_workers, n_reduce_workers)
 		
-			// compute the addresses from config file
-			for _,n := range config.Reduce_nodes {
-				addr = append(addr, "localhost:" + config.Ports[n-1])
-			}
-		
-			for i,a := range addr {
+			for i,a := range config.Workers {
 				clients[i], err = rpc.Dial("tcp", a)
 				utils.CheckError(err)
 				log.Println("RPC server @", a, "dialed")
@@ -111,7 +104,7 @@ func main() {
 			for i:=0; i<n_reduce_workers; i++ {
 				args := method.ReduceRequest{i,reduceSplits[i]}
 		
-				log.Printf("Call to RPC server @%s", addr[i])
+				log.Printf("Call to RPC server @%s", config.Workers[i])
 		
 				wg.Add(1)
 		
@@ -137,7 +130,7 @@ func main() {
 			// CONNECT TO MASTER
 			var client *rpc.Client
 
-			masterAddress := "localhost:" + config.Master
+			masterAddress := config.Master
 			client, err = rpc.Dial("tcp", masterAddress)
 			utils.CheckError(err)
 			log.Println("Master RPC server @", masterAddress, "dialed")
