@@ -10,22 +10,27 @@ import(
 	"log"
 	"sync"
 	"fmt"
+	"slices"
 )
 
-var n_workers int
+var n_reduce_workers int
 
 func shuffle() [][]int{
 	
 	sampledInput := utils.GetSampledInput()
-	reduceSplits := make([][]int, n_workers, n_workers)
+	reduceSplits := make([][]int, n_reduce_workers, n_reduce_workers)
 
-	for i:=0; i<n_workers; i++{
+	if len(sampledInput.SampledNums) == 0 {
+		return [][]int{method.MapResult}
+	}
+
+	for i:=0; i<n_reduce_workers; i++{
 		for _, e := range method.MapResult {
 			if i==0 {
 				if e<sampledInput.SampledNums[i]{
 					reduceSplits[i]=append(reduceSplits[i], e)
 				}
-			}else if i==n_workers-1 {
+			}else if i==n_reduce_workers-1 {
 				if e>=sampledInput.SampledNums[i-1]{
 					reduceSplits[i]=append(reduceSplits[i], e)
 				}
@@ -48,15 +53,18 @@ func main() {
 	//read from config file and get the port associated with this worker
 
 	config := utils.ReadConfig()
-	n_workers = config.N_workers
-	if(me>=n_workers){
+	if(me>=len(config.Ports)){
 		log.Fatal("Worker index not valid")
 	}
 	port := config.Ports[me]
 
+	mapMode := slices.Contains(config.Map_nodes, me+1)
+	reduceMode := slices.Contains(config.Reduce_nodes, me+1)
+	n_reduce_workers = len(config.Reduce_nodes)
+
 	//ISTANZIA IL SERVER
 
-	mapHandler := new(method.MapHandler)
+	mapHandler := new(method.MapReduceHandler)
 	server := rpc.NewServer()
 	err = server.RegisterName("Map", mapHandler)
 	utils.CheckError(err)
@@ -73,70 +81,76 @@ func main() {
 	}()
 
 	for{
-		for !method.MapDone{}
-		log.Printf("Map task done!")
-		log.Printf("Sending reduce tasks...")
-	
-		reduceSplits := shuffle()
-	
-		// CONNECT TO WORKERS //
-	
-		addr := []string{}
-		clients := make([]*rpc.Client, config.N_workers, config.N_workers)
-		replies := make([]method.ReduceReply, config.N_workers, config.N_workers)
-	
-		// compute the addresses from config file
-		for i:=0; i<config.N_workers; i++ {
-			addr = append(addr, "localhost:" + config.Ports[i])
-		}
-	
-		for i,a := range addr {
-			clients[i], err = rpc.Dial("tcp", a)
-			utils.CheckError(err)
-			log.Println("RPC server @", a, "dialed")
-		}
-	
-		var wg sync.WaitGroup
-	
-		// send RPC calls to workers
-		for i:=0; i<config.N_workers; i++ {
-			args := method.ReduceRequest{i,reduceSplits[i]}
-	
-			log.Printf("Call to RPC server @%s", addr[i])
-	
-			wg.Add(1)
-	
-			//Sync call in separate gorouting
-			go func(client *rpc.Client, args method.ReduceRequest, reply *method.ReduceReply){
-				err = client.Call("Map.Reduce", args, reply)
+		if mapMode{
+			for !method.MapDone{}
+			log.Printf("Map task done!")
+			log.Printf("Sending reduce tasks...")
+		
+			reduceSplits := shuffle()
+		
+			// CONNECT TO WORKERS //
+		
+			addr := []string{}
+			clients := make([]*rpc.Client, n_reduce_workers, n_reduce_workers)
+			replies := make([]method.ReduceReply, n_reduce_workers, n_reduce_workers)
+		
+			// compute the addresses from config file
+			for _,n := range config.Reduce_nodes {
+				addr = append(addr, "localhost:" + config.Ports[n-1])
+			}
+		
+			for i,a := range addr {
+				clients[i], err = rpc.Dial("tcp", a)
 				utils.CheckError(err)
-				wg.Done()
-			}(clients[i], args, &replies[i])
-	
+				log.Println("RPC server @", a, "dialed")
+			}
+		
+			var wg sync.WaitGroup
+		
+			// send RPC calls to workers
+			for i:=0; i<n_reduce_workers; i++ {
+				args := method.ReduceRequest{i,reduceSplits[i]}
+		
+				log.Printf("Call to RPC server @%s", addr[i])
+		
+				wg.Add(1)
+		
+				//Sync call in separate gorouting
+				go func(client *rpc.Client, args method.ReduceRequest, reply *method.ReduceReply){
+					err = client.Call("Map.Reduce", args, reply)
+					utils.CheckError(err)
+					wg.Done()
+				}(clients[i], args, &replies[i])
+		
+			}
+		
+			wg.Wait()
+
+			method.MapDone = false
 		}
-	
-		wg.Wait()
 
-		method.MapDone = false
+		if reduceMode{
+			for !method.ReduceDone{}
+			log.Printf("Reduce task done!")
+			log.Printf("Sending merge request to master...")
 
-		for !method.ReduceDone{}
-		log.Printf("Reduce task done!")
-		log.Printf("Sending merge request to master...")
+			// CONNECT TO MASTER
+			var client *rpc.Client
 
-		// CONNECT TO MASTER
-		var client *rpc.Client
+			masterAddress := "localhost:" + config.Master
+			client, err = rpc.Dial("tcp", masterAddress)
+			utils.CheckError(err)
+			log.Println("Master RPC server @", masterAddress, "dialed")
+		
+			reply := method.MergeReply{}
+			arg := method.MergeRequest{me, method.ReduceResult}
+			err = client.Call("Map.Merge", arg, &reply)
+			utils.CheckError(err)
 
-		masterAddress := "localhost:" + config.Master
-		client, err = rpc.Dial("tcp", masterAddress)
-		utils.CheckError(err)
-		log.Println("Master RPC server @", masterAddress, "dialed")
-	
-		reply := method.MergeReply{}
-		arg := method.MergeRequest{me, method.ReduceResult}
-		err = client.Call("Map.Merge", arg, &reply)
-		utils.CheckError(err)
+			log.Printf("Merge response: %d %s\n", reply.Status, reply.Message)
 
-		log.Printf("Merge response: %d %s\n", reply.Status, reply.Message)
+			method.ReduceDone = false
+		}
 	}
 
 }

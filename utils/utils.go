@@ -4,16 +4,16 @@ import(
 	"os"
 	"log"
 	"encoding/json"
-	"slices"
-	"math/rand"
-	"time"
+	"math"
+	"fmt"
 )
 
 type Config struct{
-	N_workers int `json:"n_workers"`
 	Ports []string `json:"ports"`
-	Out_files []string `json:"out_files"`
 	Master string `json:"master"`
+	Map_nodes []int `json:map_nodes`
+	Reduce_nodes []int `json:reduce_nodes`
+	Out_files []string `json:"out_files"`
 }
 
 type Input struct{
@@ -25,10 +25,11 @@ type SampledInput struct{
 }
 
 var Workers int
+var Configuration Config
 
 func ReadConfig() Config {
 	
-	//retrieve configuration data from file (# of workers and worker ports)
+	//retrieve all configuration data from file config.json
 
 	file, err := os.Open("config/config.json")
 	defer file.Close()
@@ -37,13 +38,11 @@ func ReadConfig() Config {
 
 	byteContent,_ := os.ReadFile("config/config.json")
 
-	var config Config
+	json.Unmarshal(byteContent, &Configuration)
 
-	json.Unmarshal(byteContent, &config)
+	Workers = len(Configuration.Ports)
 
-	Workers = config.N_workers
-
-	return config
+	return Configuration
 }
 
 func ReadInput() Input {
@@ -73,6 +72,8 @@ func CheckError(err error) {
 
 func SplitInput(nums []int, n_workers int) [][]int{
 	
+	// function to partition the input data in n balanced chunks, where n = # of map workers
+
 	if len(nums) == 0 {
 		return nil
 	}
@@ -88,7 +89,7 @@ func SplitInput(nums []int, n_workers int) [][]int{
 	numsSplit := make([][]int, n_workers)
 
 	if n_workers > len(nums) {
-		for i := 0; i<n_workers; i++ {
+		for i := 0; i<len(nums); i++ {
 			numsSplit[i] = []int{nums[i]}
 		}
 		return numsSplit
@@ -110,20 +111,55 @@ func SampleInput(nums []int) {
 
 	var sampledInput SampledInput
 	
-	// doing RANDOM SAMPLING on data
-	rand.Seed(time.Now().Unix())
+	// USO LA TECNICA DEL CAMPIONAMENTO ISTOGRAFICO CON ADATTAMENTO DINAMICO
 
-	isSet := make(map[int]bool)
-	for len(sampledInput.SampledNums) < Workers-1 {
-		value := rand.Intn(len(nums))
-		if !isSet[value] {
-			isSet[value] = true
-			sampledInput.SampledNums = append(sampledInput.SampledNums, nums[value])
+	// trovo minimo e massimo
+
+	min, max := math.MaxInt, math.MinInt
+	for _, val := range nums{
+		if val<min{
+			min=val
+		}
+		if val>max{
+			max=val
 		}
 	}
 
-	slices.Sort(sampledInput.SampledNums)
-	
+	// calcolo l'istogramma
+
+	nBins := 10
+
+	counts := make([]int, nBins)
+	binWidth:=float64(max-min)/float64(nBins)
+
+	for _, val := range nums{
+		binIndex:=int(float64(val-min)/binWidth)
+		if binIndex>=nBins{
+			binIndex = nBins-1
+		}
+		counts[binIndex]++
+	}
+
+	fmt.Println("Counts: ", counts)
+
+	// calcolo i range per ciascun nodo di Reduce
+
+	ranges := make([]int, len(Configuration.Reduce_nodes)-1)
+	bucketDim := len(nums)/len(Configuration.Reduce_nodes)
+
+	currentBin := 0
+	count:=0
+	for i:=0;i<len(Configuration.Reduce_nodes)-1;i++ {
+		for count<bucketDim && currentBin<nBins{
+			count+=counts[currentBin]
+			currentBin++
+		}
+		ranges[i]=min+int(binWidth*float64(currentBin))
+		count=0
+	}
+
+	sampledInput.SampledNums = ranges
+
 	// writing SampledInput sequence to file
 	_, err := os.OpenFile("utils/sampled.json", os.O_CREATE | os.O_TRUNC | os.O_WRONLY, 0644)
 	CheckError(err)

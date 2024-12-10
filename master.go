@@ -40,13 +40,9 @@ func main() {
 
 	// master becomes a Server to receive Merge requests from workers
 
-	//ISTANZIA IL SERVER
-
-	port := config.Master
-
 	//read from input file
 	input := utils.ReadInput()
-	split := utils.SplitInput(input.Nums, config.N_workers)
+	split := utils.SplitInput(input.Nums, len(config.Map_nodes))
 
 	//sample input data to optimize partitioning between reduce workers
 	utils.SampleInput(input.Nums)
@@ -54,12 +50,13 @@ func main() {
 
 	// CONNECT TO WORKERS //
 
-	addr := []string{}
-	clients := make([]*rpc.Client, config.N_workers, config.N_workers)
+	n_map_workers := len(config.Map_nodes)
 
-	// compute the addresses from config file
-	for i:=0; i<config.N_workers; i++ {
-		addr = append(addr, "localhost:" + config.Ports[i])
+	addr := []string{}
+	clients := make([]*rpc.Client, n_map_workers, n_map_workers)
+
+	for _,n := range config.Map_nodes {
+		addr = append(addr, "localhost:" + config.Ports[n-1])
 	}
 
 	for i,a := range addr {
@@ -68,12 +65,12 @@ func main() {
 		fmt.Println("[MASTER] RPC server @", a, "dialed")
 	}
 
-	reply := make([]method.MapReply, config.N_workers, config.N_workers)
+	reply := make([]method.MapReply, n_map_workers, n_map_workers)
 
 	var wg sync.WaitGroup
 
 	// send RPC calls to workers
-	for i:=0; i<config.N_workers; i++ {
+	for i:=0; i<n_map_workers; i++ {
 		
 		args := method.MapRequest{split[i]}
 
@@ -93,11 +90,15 @@ func main() {
 	//wait for all Map workers to finish executing
 	wg.Wait()
 
-	for i:=0; i<config.N_workers; i++ {
+	for i:=0; i<n_map_workers; i++ {
 		fmt.Println("[MASTER] Received from MAP worker" , i, reply[i].Sorted)
 	}
 
-	mapHandler := new(method.MapHandler)
+	//ISTANZIA IL SERVER
+
+	port := config.Master
+
+	mapHandler := new(method.MapReduceHandler)
 	server := rpc.NewServer()
 	err = server.RegisterName("Map", mapHandler)
 	utils.CheckError(err)
@@ -113,7 +114,7 @@ func main() {
 		}
 	}()
 
-	for method.MergeRequestCounter!=config.N_workers{}
+	for method.MergeRequestCounter!=len(config.Reduce_nodes){}
 	mergeFiles()
 
 	fmt.Println("Files merged...MapReduce DONE!")

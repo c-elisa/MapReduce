@@ -1,6 +1,8 @@
 {
-    "n_workers" : 4,
     "ports" : ["3000", "3001", "3002", "3003"],
-    "out_files": ["file1", "file2", "file3", "file4"]
+    "master": "31415",
+    "map_nodes": [1,2,3,4],
+    "reduce_nodes": [1,2,3,4],
+    "out_files": ["file1", "file2", "file3","file4"]
 }
 

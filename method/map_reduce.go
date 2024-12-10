@@ -7,7 +7,7 @@ import(
 	"mapreduce/utils"
 )
 
-type MapHandler int
+type MapReduceHandler int
 
 type MapRequest struct{
 	Nums []int
@@ -46,7 +46,7 @@ var reduceInput []int
 
 var MergeRequestCounter int
 
-func (t *MapHandler) Map(request MapRequest, reply *MapReply) error{
+func (t *MapReduceHandler) Map(request MapRequest, reply *MapReply) error{
 	MapDone = false
 
 	input := request.Nums
@@ -63,7 +63,7 @@ func (t *MapHandler) Map(request MapRequest, reply *MapReply) error{
 	return nil
 }
 
-func (t *MapHandler) Reduce(request ReduceRequest, reply *ReduceReply) error{
+func (t *MapReduceHandler) Reduce(request ReduceRequest, reply *ReduceReply) error{
 
 	ReduceDone = false
 
@@ -72,7 +72,7 @@ func (t *MapHandler) Reduce(request ReduceRequest, reply *ReduceReply) error{
 	reduceRequestCounter++
 	reduceInput = append(reduceInput, request.IntermediateResult...)
 	
-	if reduceRequestCounter==config.N_workers {
+	if reduceRequestCounter==len(config.Map_nodes) {
 		fmt.Println("[WORKER] Sequence to REDUCE", reduceInput)
 
 		filename := config.Out_files[request.Index]
@@ -100,7 +100,7 @@ func (t *MapHandler) Reduce(request ReduceRequest, reply *ReduceReply) error{
 	return nil
 }
 
-func (t *MapHandler) Merge(request MergeRequest, reply *MergeReply) error{
+func (t *MapReduceHandler) Merge(request MergeRequest, reply *MergeReply) error{
 
 	MergeRequestCounter++
 	fmt.Println("Received from REDUCE WORKER #", request.Index, " sequence: ", request.Result)
