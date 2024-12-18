@@ -5,11 +5,10 @@ import(
 	"log"
 	"encoding/json"
 	"math"
-	"fmt"
 )
 
 type Config struct{
-	Ports []string `json:"ports"`
+	Workers []string `json:"workers"`
 	Master string `json:"master"`
 	Map_nodes []int `json:map_nodes`
 	Reduce_nodes []int `json:reduce_nodes`
@@ -40,7 +39,7 @@ func ReadConfig() Config {
 
 	json.Unmarshal(byteContent, &Configuration)
 
-	Workers = len(Configuration.Ports)
+	Workers = len(Configuration.Workers)
 
 	return Configuration
 }
@@ -111,9 +110,9 @@ func SampleInput(nums []int) {
 
 	var sampledInput SampledInput
 	
-	// USO LA TECNICA DEL CAMPIONAMENTO ISTOGRAFICO CON ADATTAMENTO DINAMICO
+	// SAMPLING USING HISTOGRAPHIC SAMPLING WITH DYNAMIC ADAPTATION
 
-	// trovo minimo e massimo
+	// find max and min
 
 	min, max := math.MaxInt, math.MinInt
 	for _, val := range nums{
@@ -125,7 +124,7 @@ func SampleInput(nums []int) {
 		}
 	}
 
-	// calcolo l'istogramma
+	// compute histogram of input data
 
 	nBins := 10
 
@@ -140,9 +139,7 @@ func SampleInput(nums []int) {
 		counts[binIndex]++
 	}
 
-	fmt.Println("Counts: ", counts)
-
-	// calcolo i range per ciascun nodo di Reduce
+	// compute ranges for Reduce nodes
 
 	ranges := make([]int, len(Configuration.Reduce_nodes)-1)
 	bucketDim := len(nums)/len(Configuration.Reduce_nodes)

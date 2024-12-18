@@ -3,8 +3,9 @@ package method
 import(
 	"slices"
 	"os"
-	"fmt"
 	"mapreduce/utils"
+	"fmt"
+	"log"
 )
 
 type MapReduceHandler int
@@ -50,13 +51,13 @@ func (t *MapReduceHandler) Map(request MapRequest, reply *MapReply) error{
 	MapDone = false
 
 	input := request.Nums
-	fmt.Println("[WORKER] Received MAP request for: ", input)
+	log.Printf("Received MAP request for: %v", input)
 	
 	slices.Sort(input)
 	MapResult = input
 	reply.Sorted = input
 
-	fmt.Println("[WORKER] Computed result for MAP request: ", input)
+	log.Printf("Computed result for MAP request: %v", input)
 
 	MapDone = true
 
@@ -72,10 +73,12 @@ func (t *MapReduceHandler) Reduce(request ReduceRequest, reply *ReduceReply) err
 	reduceRequestCounter++
 	reduceInput = append(reduceInput, request.IntermediateResult...)
 	
+	// wait for all Mappers to finish
+	
 	if reduceRequestCounter==len(config.Map_nodes) {
-		fmt.Println("[WORKER] Sequence to REDUCE", reduceInput)
+		log.Printf("Sequence to REDUCE: %v", reduceInput)
 
-		filename := config.Out_files[request.Index]
+		filename := "inout_files/" + config.Out_files[request.Index]
 
 		slices.Sort(reduceInput)
 
@@ -103,7 +106,7 @@ func (t *MapReduceHandler) Reduce(request ReduceRequest, reply *ReduceReply) err
 func (t *MapReduceHandler) Merge(request MergeRequest, reply *MergeReply) error{
 
 	MergeRequestCounter++
-	fmt.Println("Received from REDUCE WORKER #", request.Index, " sequence: ", request.Result)
+	log.Printf("Received from REDUCE WORKER #%d sequence: %v", request.Index, request.Result)
 
 	reply.Status = 200
 	reply.Message = "OK"

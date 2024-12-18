@@ -9,7 +9,6 @@ import(
 	"net"
 	"log"
 	"sync"
-	"fmt"
 	"slices"
 )
 
@@ -17,6 +16,8 @@ var n_reduce_workers int
 
 func shuffle() [][]int{
 	
+	//function to partition intermediate result between Reducers
+
 	sampledInput := utils.GetSampledInput()
 	reduceSplits := make([][]int, n_reduce_workers, n_reduce_workers)
 
@@ -42,7 +43,6 @@ func shuffle() [][]int{
 		}
 	}
 
-	fmt.Println(reduceSplits)
 	return reduceSplits
 }
 
@@ -57,15 +57,16 @@ func main() {
 		log.Fatal("Worker index not valid")
 	}
 
+	//determine in what mode the worker is supposed to work (Mapper or Reducer or both)
 	mapMode := slices.Contains(config.Map_nodes, me+1)
 	reduceMode := slices.Contains(config.Reduce_nodes, me+1)
 	n_reduce_workers = len(config.Reduce_nodes)
 
-	//ISTANZIA IL SERVER
+	// START SERVER //
 
 	mapHandler := new(method.MapReduceHandler)
 	server := rpc.NewServer()
-	err = server.RegisterName("Map", mapHandler)
+	err = server.RegisterName("MapReduce", mapHandler)
 	utils.CheckError(err)
 
 	address := config.Workers[me]
@@ -85,6 +86,7 @@ func main() {
 			log.Printf("Map task done!")
 			log.Printf("Sending reduce tasks...")
 		
+			//partition intermediate result
 			reduceSplits := shuffle()
 		
 			// CONNECT TO WORKERS //
@@ -92,7 +94,8 @@ func main() {
 			clients := make([]*rpc.Client, n_reduce_workers, n_reduce_workers)
 			replies := make([]method.ReduceReply, n_reduce_workers, n_reduce_workers)
 		
-			for i,a := range config.Workers {
+			for i,el := range config.Reduce_nodes {
+				a := config.Workers[el-1]
 				clients[i], err = rpc.Dial("tcp", a)
 				utils.CheckError(err)
 				log.Println("RPC server @", a, "dialed")
@@ -100,7 +103,7 @@ func main() {
 		
 			var wg sync.WaitGroup
 		
-			// send RPC calls to workers
+			// send RPC calls to Reducers
 			for i:=0; i<n_reduce_workers; i++ {
 				args := method.ReduceRequest{i,reduceSplits[i]}
 		
@@ -108,9 +111,9 @@ func main() {
 		
 				wg.Add(1)
 		
-				//Sync call in separate gorouting
+				//Sync call in separate goroutine
 				go func(client *rpc.Client, args method.ReduceRequest, reply *method.ReduceReply){
-					err = client.Call("Map.Reduce", args, reply)
+					err = client.Call("MapReduce.Reduce", args, reply)
 					utils.CheckError(err)
 					wg.Done()
 				}(clients[i], args, &replies[i])
@@ -135,9 +138,11 @@ func main() {
 			utils.CheckError(err)
 			log.Println("Master RPC server @", masterAddress, "dialed")
 		
+			//send Merge request
+			
 			reply := method.MergeReply{}
 			arg := method.MergeRequest{me, method.ReduceResult}
-			err = client.Call("Map.Merge", arg, &reply)
+			err = client.Call("MapReduce.Merge", arg, &reply)
 			utils.CheckError(err)
 
 			log.Printf("Merge response: %d %s\n", reply.Status, reply.Message)

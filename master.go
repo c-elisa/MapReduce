@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"mapreduce/utils"
 	"net/rpc"
 	"mapreduce/method"
@@ -22,7 +21,7 @@ func mergeFiles(){
 	defer out.Close()
 
 	for _,filename := range config.Out_files {
-		file, err = os.Open(filename)
+		file, err = os.Open("inout_files/" + filename)
 		utils.CheckError(err)
 
 		_, err = io.Copy(out, file)
@@ -37,65 +36,29 @@ func main() {
 	
 	//read from config file
 	config = utils.ReadConfig()
-
-	// master becomes a Server to receive Merge requests from workers
+	if len(config.Map_nodes) == 0{
+		log.Fatal("[ERROR] There are no Map nodes.")
+	}else if len(config.Reduce_nodes) == 0{
+		log.Fatal("[ERROR] There are no Reduce nodes.")
+	}
 
 	//read from input file
 	input := utils.ReadInput()
+	if len(input.Nums) == 0 {
+		log.Fatal("Empty input...cannot execute sorting.")
+	}
 	split := utils.SplitInput(input.Nums, len(config.Map_nodes))
 
 	//sample input data to optimize partitioning between reduce workers
 	utils.SampleInput(input.Nums)
 
-
-	// CONNECT TO WORKERS //
-
-	n_map_workers := len(config.Map_nodes)
-
-	clients := make([]*rpc.Client, n_map_workers, n_map_workers)
-
-	for i,a := range config.Workers {
-		clients[i], err = rpc.Dial("tcp", a)
-		utils.CheckError(err)
-		fmt.Println("[MASTER] RPC server @", a, "dialed")
-	}
-
-	reply := make([]method.MapReply, n_map_workers, n_map_workers)
-
-	var wg sync.WaitGroup
-
-	// send RPC calls to workers
-	for i:=0; i<n_map_workers; i++ {
-		
-		args := method.MapRequest{split[i]}
-
-		fmt.Println("[MASTER] Call to RPC server @", config.Workers[i])
-
-		wg.Add(1)
-
-		//Sync call in separate gorouting
-		go func(client *rpc.Client, args method.MapRequest, reply *method.MapReply){
-			err = client.Call("Map.Map", args, reply)
-			utils.CheckError(err)
-			wg.Done()
-		}(clients[i], args, &reply[i])
-
-	}
-
-	//wait for all Map workers to finish executing
-	wg.Wait()
-
-	for i:=0; i<n_map_workers; i++ {
-		fmt.Println("[MASTER] Received from MAP worker" , i, reply[i].Sorted)
-	}
-
-	//ISTANZIA IL SERVER
+	//START SERVER
 
 	addr := config.Master
 
 	mapHandler := new(method.MapReduceHandler)
 	server := rpc.NewServer()
-	err = server.RegisterName("Map", mapHandler)
+	err = server.RegisterName("MapReduce", mapHandler)
 	utils.CheckError(err)
 
 	lis, err := net.Listen("tcp", addr)
@@ -108,10 +71,52 @@ func main() {
 		}
 	}()
 
+	// CONNECT TO MAPPERS //
+
+	n_map_workers := len(config.Map_nodes)
+
+	clients := make([]*rpc.Client, n_map_workers, n_map_workers)
+
+	for i,el := range config.Map_nodes {
+		a := config.Workers[el-1]
+		clients[i], err = rpc.Dial("tcp", a)
+		utils.CheckError(err)
+		log.Printf("RPC server @%s dialed", a)
+	}
+
+	reply := make([]method.MapReply, n_map_workers, n_map_workers)
+
+	var wg sync.WaitGroup
+
+	// send RPC calls to Mappers
+	for i:=0; i<n_map_workers; i++ {
+		
+		args := method.MapRequest{split[i]}
+
+		log.Printf("Call to RPC server @%s", config.Workers[i])
+
+		wg.Add(1)
+
+		//Sync call in separate gorouting
+		go func(client *rpc.Client, args method.MapRequest, reply *method.MapReply){
+			err = client.Call("MapReduce.Map", args, reply)
+			utils.CheckError(err)
+			wg.Done()
+		}(clients[i], args, &reply[i])
+
+	}
+
+	//wait for all Map workers to finish executing
+	wg.Wait()
+
+	for i:=0; i<n_map_workers; i++ {
+		log.Printf("Received from MAP worker %d: %v" , i, reply[i].Sorted)
+	}
+
 	for method.MergeRequestCounter!=len(config.Reduce_nodes){}
 	mergeFiles()
 
-	fmt.Println("Files merged...MapReduce DONE!")
+	log.Printf("Files merged...MapReduce DONE!")
 	method.MergeRequestCounter=0
 
 }
